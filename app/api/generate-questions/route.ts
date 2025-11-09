@@ -9,7 +9,7 @@ export const revalidate = 0;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { careerPath, difficulty, count = 15, timestamp, random } = body;
+    const { careerPath, difficulty, count = 10, timestamp, random, sessionId, forceNew } = body;
 
     // Validate input
     if (!careerPath || typeof careerPath !== 'string') {
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
       const questions = await pipeline.generateQuestions(
         careerPath,
         difficulty as DifficultyLevel,
-        count
+        count,
+        sessionId
       );
 
       return NextResponse.json({

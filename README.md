@@ -7,20 +7,23 @@ A secure, AI-powered mock test platform with comprehensive anti-cheat features b
 ### 🧠 AI-Powered Question Generation
 - Dynamic question generation using Groq LLM (Llama 3.1 8B)
 - Career-specific questions tailored to selected path
-- Progressive difficulty (Beginner → Intermediate → Advanced)
+- **10 questions total:** 4 Beginner → 3 Intermediate → 3 Advanced
+- **Dynamic timer:** 30s (Beginner), 45s (Intermediate), 60s (Advanced)
+- **Unique questions every time** - Session-based generation with seed variation
 - Web-enhanced context via Tavily API
 
 ### 🛡️ Anti-Cheat System
 1. **Fullscreen Enforcement** - Auto-enters fullscreen, 2 exit attempts = auto-submit
-2. **Tab Switching Prevention** - Detects tab changes, 2 attempts = auto-submit
-3. **Career Path Watermark** - Multi-layer background watermark
-4. **Cursor Confinement** - Restricts cursor to test area
-5. **Screenshot Detection** - Detects PrintScreen, Snipping Tool, etc.
-6. **Clipboard Monitoring** - Blocks copy/paste, periodic clearing
-7. **Browser Lockdown** - Disables DevTools, right-click, shortcuts
-8. **Safe Exam Browser** - Optional SEB requirement
-9. **Mouse Tracking** - Monitors inactivity and edge camping
-10. **Multiple Tab Prevention** - BroadcastChannel detection
+2. **Tab Switching Prevention** - Detects tab changes, immediate auto-submit
+3. **Back Navigation Blocking** - Prevents browser back button during quiz
+4. **Career Path Watermark** - Multi-layer background watermark
+5. **Cursor Confinement** - Restricts cursor to test area
+6. **Screenshot Detection** - Detects PrintScreen, Snipping Tool, etc.
+7. **Clipboard Monitoring** - Blocks copy/paste, periodic clearing
+8. **Browser Lockdown** - Disables DevTools, right-click, shortcuts, F5 refresh
+9. **Safe Exam Browser** - Optional SEB requirement
+10. **Mouse Tracking** - Monitors inactivity and edge camping
+11. **Multiple Tab Prevention** - BroadcastChannel detection
 
 ### 🎨 UI/UX
 - Beautiful gradient backgrounds
@@ -97,15 +100,17 @@ Open [http://localhost:3000](http://localhost:3000)
 
 1. **Select Career Path** - Choose from available career options
 2. **Start Quiz** - Enters fullscreen automatically
-3. **Answer Questions** - 15 questions with progressive difficulty
+3. **Answer Questions** - 10 questions with progressive difficulty
 4. **View Results** - Detailed score and question review
 
 ### Quiz Rules
 - Fullscreen required throughout
 - Timed questions (30s/45s/60s based on difficulty)
-- No tab switching allowed
+- No tab switching allowed (immediate auto-submit)
+- No back navigation allowed during quiz
 - Copy/paste disabled
-- 2 violation attempts before auto-submit
+- Browser refresh blocked
+- 2 violation attempts before auto-submit (for most violations)
 
 ## 🛠️ Tech Stack
 

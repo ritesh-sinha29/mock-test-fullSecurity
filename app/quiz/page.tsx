@@ -31,6 +31,7 @@ export default function QuizPage() {
     toggleFullscreen,
     setLoading,
     setError,
+    setQuizActive,
   } = useQuizStore();
 
   // Initialize proctoring features
@@ -50,23 +51,21 @@ export default function QuizPage() {
   const devToolsCheckRef = useRef<NodeJS.Timeout | null>(null);
   const tabSwitchRef = useRef<boolean>(false);
 
-  // Get timer duration based on question index (progressive difficulty)
+  // Get timer duration based on question index (10 questions total)
   const getQuestionTimeLimit = () => {
-    // First 5 questions (beginner) - 30 seconds
-    if (currentQuestionIndex < 5) {
+    // Questions 0-3 (beginner)
+    if (currentQuestionIndex < 4) {
       return 30;
     }
-    // Next 5 questions (intermediate) - 45 seconds
-    else if (currentQuestionIndex < 10) {
+    // Questions 4-6 (intermediate)
+    if (currentQuestionIndex < 7) {
       return 45;
     }
-    // Last 5 questions (advanced) - 60 seconds
-    else {
-      return 60;
-    }
+    // Questions 7-9 (advanced)
+    return 60;
   };
 
-  // Generate questions in batches (5 beginner, 5 intermediate, 5 advanced) with randomization
+  // Generate questions in batches (4 beginner, 3 intermediate, 3 advanced) with randomization
   const generateQuestions = async () => {
     setLoading(true);
     setError(null);
@@ -75,8 +74,40 @@ export default function QuizPage() {
       // Add timestamp and random parameter to prevent caching
       const timestamp = Date.now();
       const random = Math.random();
-      
-      // Generate 5 beginner questions
+      const sessionNonce = `${sessionId}-${timestamp}-${random}`;
+
+      // Helper to fetch a batch by difficulty
+      const fetchBatch = async (
+        difficulty: 'beginner' | 'intermediate' | 'advanced',
+        count: number,
+        offset: number
+      ) => {
+        const response = await fetch('/api/generate-questions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          },
+          body: JSON.stringify({
+            careerPath,
+            difficulty,
+            count,
+            timestamp: timestamp + offset,
+            random: random + offset * 0.01,
+            sessionId: `${sessionNonce}-${difficulty}`,
+            forceNew: true,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to generate ${difficulty} questions`);
+        }
+
+        return response.json();
+      };
+
+      // Generate beginner/intermediate/advanced questions (4/3/3)
       const beginnerResponse = await fetch('/api/generate-questions', {
         method: 'POST',
         headers: { 
@@ -87,9 +118,11 @@ export default function QuizPage() {
         body: JSON.stringify({
           careerPath: careerPath,
           difficulty: 'beginner',
-          count: 5,
-          timestamp, // Add timestamp to force unique requests
-          random, // Add random to ensure uniqueness
+          count: 4,
+          timestamp,
+          random,
+          sessionId: `${sessionNonce}-beginner`,
+          forceNew: true,
         }),
       });
 
@@ -98,61 +131,27 @@ export default function QuizPage() {
       }
 
       const beginnerData = await beginnerResponse.json();
-      
-      // Generate 5 intermediate questions
-      const intermediateResponse = await fetch('/api/generate-questions', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        },
-        body: JSON.stringify({
-          careerPath: careerPath,
-          difficulty: 'intermediate',
-          count: 5,
-          timestamp, // Add timestamp to force unique requests
-          random, // Add random to ensure uniqueness
-        }),
-      });
+      const intermediateData = await fetchBatch('intermediate', 3, 1);
+      const advancedData = await fetchBatch('advanced', 3, 2);
 
-      if (!intermediateResponse.ok) {
-        throw new Error('Failed to generate intermediate questions');
-      }
-
-      const intermediateData = await intermediateResponse.json();
-      
-      // Generate 5 advanced questions
-      const advancedResponse = await fetch('/api/generate-questions', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        },
-        body: JSON.stringify({
-          careerPath: careerPath,
-          difficulty: 'advanced',
-          count: 5,
-          timestamp, // Add timestamp to force unique requests
-          random, // Add random to ensure uniqueness
-        }),
-      });
-
-      if (!advancedResponse.ok) {
-        throw new Error('Failed to generate advanced questions');
-      }
-
-      const advancedData = await advancedResponse.json();
-      
-      // Combine all questions and randomize the order within each difficulty level
-      const allQuestions = [
-        ...shuffleArray(beginnerData.questions),
-        ...shuffleArray(intermediateData.questions),
-        ...shuffleArray(advancedData.questions)
+      // Combine and ensure uniqueness by question text
+      const combined = [
+        ...shuffleArray(beginnerData.questions ?? []),
+        ...shuffleArray(intermediateData.questions ?? []),
+        ...shuffleArray(advancedData.questions ?? []),
       ];
-      
-      setQuestions(allQuestions);
+
+      const uniqueQuestions: typeof combined = [];
+      const seen = new Set<string>();
+      combined.forEach((question) => {
+        const signature = `${question.question}`.toLowerCase();
+        if (!seen.has(signature)) {
+          seen.add(signature);
+          uniqueQuestions.push(question);
+        }
+      });
+
+      setQuestions(uniqueQuestions.slice(0, 10));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load questions');
     } finally {
@@ -177,6 +176,26 @@ export default function QuizPage() {
       setShowFullscreenPrompt(true);
     }
   }, [questions.length, startTime]);
+
+  // Prevent browser back/forward navigation during active quiz
+  useEffect(() => {
+    if (!startTime) return;
+
+    // Block browser navigation buttons
+    const blockNavigation = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+      alert('Navigation is disabled during the quiz. Please complete or finish the test.');
+    };
+
+    // Push initial state to prevent back navigation
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', blockNavigation);
+
+    return () => {
+      window.removeEventListener('popstate', blockNavigation);
+    };
+  }, [startTime]);
 
   // Function to start quiz in fullscreen (triggered by user click)
   const handleStartQuizFullscreen = async () => {
@@ -291,6 +310,7 @@ export default function QuizPage() {
         nextQuestion();
       } else {
         // Last question - go to results
+        setQuizActive(false);
         router.push('/results');
       }
       setIsAutoAdvancing(false);
@@ -328,6 +348,7 @@ export default function QuizPage() {
         // Second attempt - auto-submit test
         else {
           releaseWakeLock();
+          setQuizActive(false);
           router.push('/results');
         }
       } else if (document.fullscreenElement && !isFullscreen) {
@@ -355,6 +376,7 @@ export default function QuizPage() {
           
           // Immediately auto-submit test on tab switch
           releaseWakeLock();
+          setQuizActive(false);
           router.push('/results');
         }
       }
@@ -532,6 +554,7 @@ export default function QuizPage() {
       if (newAttempts >= 2) {
         // End quiz after 2 cheating attempts
         releaseWakeLock();
+        setQuizActive(false);
         router.push('/results');
       } else {
         // Show warning
@@ -552,6 +575,7 @@ export default function QuizPage() {
 
   const handleFinish = () => {
     releaseWakeLock();
+    setQuizActive(false);
     router.push('/results');
   };
 
@@ -735,14 +759,14 @@ export default function QuizPage() {
                 <div className="flex items-start gap-2">
                   <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 text-xs sm:text-sm font-bold">3</div>
                   <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
-                    <span className="font-semibold">Progressive Difficulty:</span> The test contains 15 questions in 3 difficulty levels (5 beginner, 5 intermediate, 5 advanced).
+                    <span className="font-semibold">Mixed Questions:</span> The test contains 10 carefully selected questions covering various topics and complexity levels.
                   </p>
                 </div>
                 
                 <div className="flex items-start gap-2">
                   <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 text-xs sm:text-sm font-bold">4</div>
                   <p className="text-gray-700 text-xs sm:text-sm leading-relaxed">
-                    <span className="font-semibold">Timed Questions:</span> Each difficulty level has different time limits (30s for Beginner, 45s for Intermediate, 60s for Advanced).
+                    <span className="font-semibold">Timed Questions:</span> Each question has a time limit based on its complexity (30-60 seconds).
                   </p>
                 </div>
                 
@@ -811,16 +835,6 @@ export default function QuizPage() {
   const timerProgress = (questionTimer / timeLimit) * 100;
   const isTimerCritical = remainingTime <= 10;
 
-  // Get difficulty level based on question index
-  const getDifficultyLevel = () => {
-    if (currentQuestionIndex < 5) {
-      return 'Beginner';
-    } else if (currentQuestionIndex < 10) {
-      return 'Intermediate';
-    } else {
-      return 'Advanced';
-    }
-  };
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-purple-50 via-white to-blue-50 relative flex flex-col">
@@ -847,18 +861,18 @@ export default function QuizPage() {
         )}
       </AnimatePresence>
 
-      <div className="quiz-container relative h-full p-4 md:p-6 flex flex-col overflow-hidden max-w-7xl mx-auto w-full">
+      <div className="quiz-container relative flex-1 p-2 sm:p-3 md:p-4 lg:p-6 flex flex-col overflow-hidden max-w-7xl mx-auto w-full">
         {/* Header */}
-        <div className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+        <div className="mb-2 sm:mb-3 md:mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 w-full flex-shrink-0">
           <div className="flex-shrink-0">
-            <h1 className="text-xl md:text-2xl font-bold text-gray-800"> Mock Test </h1>
-            <p className="text-sm md:text-base text-gray-500">{careerPath} - {getDifficultyLevel()}</p>
+            <h1 className="text-base sm:text-lg md:text-xl lg:text-2xl font-bold text-gray-800">Mock Test</h1>
+            <p className="text-xs sm:text-sm md:text-base text-gray-500 truncate max-w-[200px] sm:max-w-none">{careerPath}</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
             {/* Progress */}
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="w-32 md:w-64 bg-gray-200 rounded-full h-2 md:h-3 overflow-hidden">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <div className="w-20 sm:w-32 md:w-48 lg:w-64 bg-gray-200 rounded-full h-1.5 sm:h-2 md:h-2.5 overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${progress}%` }}
@@ -866,15 +880,15 @@ export default function QuizPage() {
                   className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full"
                 />
               </div>
-              <span className="text-xs md:text-sm font-semibold text-gray-700 min-w-[2.5rem] md:min-w-[3rem]">
+              <span className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-700 min-w-[2rem] sm:min-w-[2.5rem]">
                 {Math.round(progress)}%
               </span>
             </div>
 
             {/* Timer */}
-            <div className="flex items-center gap-1.5 md:gap-2 text-gray-700">
-              <Clock className="w-4 h-4 md:w-5 md:h-5" />
-              <span className="font-mono text-base md:text-lg">{formatTime(elapsedTime)}</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 text-gray-700">
+              <Clock className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5" />
+              <span className="font-mono text-xs sm:text-sm md:text-base lg:text-lg">{formatTime(elapsedTime)}</span>
             </div>
           </div>
         </div>
@@ -935,28 +949,19 @@ export default function QuizPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.3 }}
-              className="w-full max-w-4xl h-full flex flex-col mx-4"
+              className="w-full max-w-4xl h-full flex flex-col px-2 sm:px-4"
             >
-              <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl p-4 md:p-5 lg:p-6 flex-1 flex flex-col overflow-hidden">
-              {/* Question Number and Difficulty */}
-              <div className="flex justify-between items-center mb-2 md:mb-3 flex-shrink-0">
-                <p className="text-gray-400 text-xs md:text-sm">Question {currentQuestionIndex + 1} of {questions.length}</p>
-                <span className={`text-xs font-semibold px-2 py-1 rounded ${
-                  currentQuestionIndex < 5 
-                    ? 'bg-emerald-100 text-emerald-800' 
-                    : currentQuestionIndex < 10 
-                      ? 'bg-blue-100 text-blue-800' 
-                      : 'bg-violet-100 text-violet-800'
-                }`}>
-                  {getDifficultyLevel()}
-                </span>
+              <div className="bg-white rounded-xl sm:rounded-2xl md:rounded-3xl shadow-xl sm:shadow-2xl p-3 sm:p-4 md:p-5 lg:p-6 flex-1 flex flex-col overflow-hidden">
+              {/* Question Number */}
+              <div className="flex justify-between items-center mb-1 sm:mb-2 md:mb-3 flex-shrink-0">
+                <p className="text-gray-400 text-[10px] sm:text-xs md:text-sm">Question {currentQuestionIndex + 1} of {questions.length}</p>
               </div>
 
               {/* Question Timer */}
-              <div className="mb-3 md:mb-4 flex-shrink-0">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 md:gap-2">
-                    <span className="text-xs md:text-sm font-medium text-gray-600">Time Remaining</span>
+              <div className="mb-2 sm:mb-3 md:mb-4 flex-shrink-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1 sm:gap-1.5">
+                    <span className="text-[10px] sm:text-xs md:text-sm font-medium text-gray-600">Time</span>
                     {isTimerCritical && (
                       <motion.div
                         animate={{ scale: [1, 1.2, 1] }}
@@ -966,7 +971,7 @@ export default function QuizPage() {
                       </motion.div>
                     )}
                   </div>
-                  <span className={`text-base md:text-lg font-bold tabular-nums ${
+                  <span className={`text-xs sm:text-sm md:text-base lg:text-lg font-bold tabular-nums ${
                     isTimerCritical ? 'text-red-600 animate-pulse' : 'text-blue-600'
                   }`}>
                     {remainingTime}s
@@ -987,12 +992,12 @@ export default function QuizPage() {
               </div>
 
               {/* Question Text */}
-              <h2 className="text-base md:text-lg lg:text-xl font-semibold text-gray-800 mb-3 md:mb-4 leading-snug flex-shrink-0">
+              <h2 className="text-sm sm:text-base md:text-lg lg:text-xl font-semibold text-gray-800 mb-2 sm:mb-3 md:mb-4 leading-tight sm:leading-snug flex-shrink-0 line-clamp-3 sm:line-clamp-none">
                 {currentQuestion.question}
               </h2>
 
               {/* Options */}
-              <div className="space-y-2 md:space-y-2.5 flex-1 min-h-0 flex flex-col">
+              <div className="space-y-1.5 sm:space-y-2 md:space-y-2.5 flex-1 min-h-0 flex flex-col overflow-y-auto">
                 {Object.entries(currentQuestion.options).map(([key, value]) => {
                   const isSelected = selectedAnswer === key;
                   
@@ -1002,7 +1007,7 @@ export default function QuizPage() {
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                       onClick={() => setAnswer(currentQuestion.id, key as 'A' | 'B' | 'C' | 'D')}
-                      className={`w-full p-2.5 md:p-3 rounded-lg md:rounded-xl border-2 transition-all duration-200 text-left flex items-center justify-between flex-shrink-0 ${
+                      className={`w-full p-2 sm:p-2.5 md:p-3 rounded-md sm:rounded-lg md:rounded-xl border sm:border-2 transition-all duration-200 text-left flex items-center justify-between flex-shrink-0 ${
                         isSelected
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-gray-200 bg-gray-50 hover:border-gray-300'
@@ -1011,28 +1016,28 @@ export default function QuizPage() {
                       <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
                         {/* Option Letter */}
                         <div
-                          className={`w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 flex-shrink-0 rounded-md md:rounded-lg flex items-center justify-center font-semibold text-sm md:text-base ${
+                          className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 lg:w-9 lg:h-9 flex-shrink-0 rounded sm:rounded-md flex items-center justify-center font-semibold text-xs sm:text-sm md:text-base ${
                             isSelected
                               ? 'bg-blue-500 text-white'
-                              : 'bg-white text-gray-600 border-2 border-gray-300'
+                              : 'bg-white text-gray-600 border sm:border-2 border-gray-300'
                           }`}
                         >
                           {key}
                         </div>
                         
                         {/* Option Text */}
-                        <span className="text-gray-700 text-sm md:text-base break-words">{value}</span>
+                        <span className="text-gray-700 text-xs sm:text-sm md:text-base break-words line-clamp-2 sm:line-clamp-none">{value}</span>
                       </div>
 
                       {/* Radio indicator */}
-                      <div className={`w-5 h-5 md:w-5 md:h-5 flex-shrink-0 rounded-full border-2 flex items-center justify-center ${
+                      <div className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 rounded-full border sm:border-2 flex items-center justify-center ${
                         isSelected ? 'border-blue-500' : 'border-gray-400'
                       }`}>
                         {isSelected && (
                           <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="w-2.5 h-2.5 md:w-2.5 md:h-2.5 rounded-full bg-blue-500"
+                            className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-blue-500"
                           />
                         )}
                       </div>

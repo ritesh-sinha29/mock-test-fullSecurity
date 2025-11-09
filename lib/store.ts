@@ -32,13 +32,15 @@ export interface QuizState {
   isFullscreen: boolean;
   isLoading: boolean;
   error: string | null;
-  
+  isQuizActive: boolean;
+
   // Proctoring state
   sessionId: string;
   userEmail: string;
   proctorConfig: ProctorConfig;
   sebDetected: boolean;
   violationCount: number;
+
   
   // Actions
   setCareerPath: (path: string) => void;
@@ -55,6 +57,7 @@ export interface QuizState {
   setProctorConfig: (config: Partial<ProctorConfig>) => void;
   setSEBDetected: (detected: boolean) => void;
   incrementViolation: () => void;
+  setQuizActive: (active: boolean) => void;
   reset: () => void;
 }
 
@@ -67,6 +70,7 @@ export const useQuizStore = create<QuizState>((set) => ({
   isFullscreen: false,
   isLoading: false,
   error: null,
+  isQuizActive: false,
   
   // Proctoring state defaults
   sessionId: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -83,7 +87,14 @@ export const useQuizStore = create<QuizState>((set) => ({
   violationCount: 0,
 
   setCareerPath: (careerPath) => set({ careerPath }),
-  setQuestions: (questions) => set({ questions }),
+  setQuestions: (questions) =>
+    set(() => ({
+      questions,
+      currentQuestionIndex: 0,
+      answers: {},
+      startTime: null,
+      isQuizActive: false,
+    })),
   setAnswer: (questionId, answer) =>
     set((state) => ({
       answers: { ...state.answers, [questionId]: answer },
@@ -99,7 +110,7 @@ export const useQuizStore = create<QuizState>((set) => ({
     set((state) => ({
       currentQuestionIndex: Math.max(state.currentQuestionIndex - 1, 0),
     })),
-  startQuiz: () => set({ startTime: Date.now() }),
+  startQuiz: () => set({ startTime: Date.now(), isQuizActive: true }),
   toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
@@ -114,6 +125,7 @@ export const useQuizStore = create<QuizState>((set) => ({
     set((state) => ({
       violationCount: state.violationCount + 1,
     })),
+  setQuizActive: (isQuizActive) => set({ isQuizActive }),
   reset: () =>
     set({
       careerPath: '',
@@ -123,6 +135,7 @@ export const useQuizStore = create<QuizState>((set) => ({
       startTime: null,
       isLoading: false,
       error: null,
+      isQuizActive: false,
       sessionId: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       userEmail: '',
       proctorConfig: {

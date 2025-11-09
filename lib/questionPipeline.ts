@@ -35,11 +35,14 @@ class QuestionGenerationPipeline {
     this.promptTemplate = PromptTemplate.fromTemplate(`
 You are an expert quiz creator. Generate {count} UNIQUE and DIFFERENT multiple choice questions specifically for "{careerPath}" at {difficulty} level.
 
-IMPORTANT: 
-- Every question MUST be directly relevant to "{careerPath}"
-- Questions MUST be completely different from previous generations
-- Use the seed value to ensure variety: {seed}
-- Cover different aspects, tools, concepts, and scenarios in "{careerPath}"
+IMPORTANT UNIQUENESS REQUIREMENTS:
+- Every question MUST be completely different from any previous questions
+- Use the unique seed value to ensure variety: {seed}
+- Session ID for this quiz: {sessionId}
+- NEVER repeat topics, scenarios, or question patterns
+- Each question must cover a DIFFERENT aspect of "{careerPath}"
+- Avoid similar phrasings or concepts across questions
+- Use diverse question types: definitions, scenarios, comparisons, applications
 
 {difficultyFocus}
 
@@ -53,11 +56,11 @@ Question Requirements:
 - Based on current industry standards and practices
 - Cover diverse topics within "{careerPath}"
 - Include practical scenarios specific to "{careerPath}"
+- Mix theoretical knowledge with practical applications
 
-Return ONLY valid JSON array:
+Return ONLY valid JSON array (DO NOT include id field, it will be auto-generated):
 [
   {{
-    "id": "q1",
     "question": "Question text?",
     "options": {{
       "A": "Option A",
@@ -70,8 +73,9 @@ Return ONLY valid JSON array:
 ]
 
 No markdown, no explanations. JSON only.
-Unique Seed for Variation: {seed}
-Career Focus: {careerPath}
+Unique Seed: {seed}
+Session: {sessionId}
+Career: {careerPath}
     `);
   }
 
@@ -107,8 +111,10 @@ Career Focus: {careerPath}
           throw new Error(`Invalid correct answer at index ${index}`);
         }
 
+        // Generate unique ID with timestamp and index to avoid duplicates
+        const uniqueId = q.id || `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${index}`;
         return {
-          id: q.id || `q${index + 1}`,
+          id: uniqueId,
           question: q.question,
           options: {
             A: q.options.A || '',
@@ -128,7 +134,8 @@ Career Focus: {careerPath}
   async generateQuestions(
     careerPath: string,
     difficulty: DifficultyLevel,
-    count: number = 15
+    count: number = 10,
+    sessionId?: string
   ): Promise<Question[]> {
     let lastError: Error | null = null;
 
@@ -150,6 +157,7 @@ Career Focus: {careerPath}
     
     // Generate unique seed for variety
     const seed = generateUniqueSeed();
+    const uniqueSessionId = sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -163,6 +171,7 @@ Career Focus: {careerPath}
           difficultyFocus,
           webContext: webContext ? `\nWeb Search Results (use as reference for current, real-world content):\n${webContext}\n` : '',
           seed,
+          sessionId: uniqueSessionId,
         });
 
         // Call LLM with timeout
@@ -379,7 +388,10 @@ Career Focus: {careerPath}
       },
     ];
 
-    return baseQuestions;
+    return baseQuestions.map((question, index) => ({
+      ...question,
+      id: `${difficulty}-${index + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    }));
   }
 }
 

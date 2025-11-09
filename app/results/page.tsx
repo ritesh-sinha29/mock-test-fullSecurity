@@ -12,8 +12,8 @@ export default function ResultsPage() {
   const [score, setScore] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
   
-  // Determine difficulty based on question count (15 questions total: 5 beginner, 5 intermediate, 5 advanced)
-  const difficulty = questions.length > 0 ? 'Mixed (Beginner to Advanced)' : '';
+  // Quiz type description
+  const quizType = questions.length > 0 ? 'Mixed Assessment' : '';
 
   useEffect(() => {
     if (questions.length === 0) {
@@ -21,7 +21,24 @@ export default function ResultsPage() {
       return;
     }
 
-    // Calculate score
+    // Prevent back navigation to quiz page (register once per mount)
+    window.history.pushState(null, '', window.location.href);
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+      alert('You cannot go back to the quiz. Please start a new test.');
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      reset();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     let correct = 0;
     questions.forEach((q) => {
       if (answers[q.id] === q.correctAnswer) {
@@ -30,12 +47,17 @@ export default function ResultsPage() {
     });
     setScore(correct);
 
-    // Calculate time
-    if (startTime) {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const startedAt = startTime;
+    if (startedAt !== null) {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       setElapsedTime(elapsed);
     }
-  }, [questions, answers, startTime]);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [questions, answers, startTime, router, reset]);
 
   const handleRetake = () => {
     reset();
@@ -181,7 +203,7 @@ export default function ResultsPage() {
           </motion.div>
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 mb-1">Mock Test Complete!</h1>
           <p className="text-gray-600 text-xs sm:text-sm md:text-base">
-            {careerPath} - {difficulty}
+            {careerPath} - {quizType}
           </p>
         </div>
 

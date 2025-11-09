@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, GraduationCap, Trophy, ArrowRight, TrendingUp, Award, BarChart3, BookOpen, Zap, Crown } from 'lucide-react';
@@ -208,12 +208,19 @@ const difficultyOptions = [
 
 export default function DifficultySelectionPage() {
   const router = useRouter();
-  const { setCareerPath } = useQuizStore();
+  const { setCareerPath, isQuizActive } = useQuizStore();
   const [careerPathInput, setCareerPathInput] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredCareers, setFilteredCareers] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [isButtonClicked, setIsButtonClicked] = useState(false);
+
+  // Redirect to quiz if already active
+  useEffect(() => {
+    if (isQuizActive) {
+      router.push('/quiz');
+    }
+  }, [isQuizActive, router]);
 
   const handleContinue = async () => {
     setError('');
@@ -377,16 +384,16 @@ export default function DifficultySelectionPage() {
               </h3>
               <div className="space-y-1.5">
                 <p className="text-sm text-slate-700 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span><strong>5 Beginner</strong> questions - Fundamental concepts</span>
-                </p>
-                <p className="text-sm text-slate-700 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span><strong>5 Intermediate</strong> questions - Practical applications</span>
+                  <span><strong>10 Mixed Questions</strong> - Covering various topics and complexity levels</span>
                 </p>
                 <p className="text-sm text-slate-700 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-violet-500"></span>
-                  <span><strong>5 Advanced</strong> questions - Complex problem-solving</span>
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  <span><strong>Dynamic Timing</strong> - Each question has appropriate time limits</span>
+                </p>
+                <p className="text-sm text-slate-700 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                  <span><strong>Comprehensive Assessment</strong> - Tests knowledge across multiple areas</span>
                 </p>
               </div>
             </div>
