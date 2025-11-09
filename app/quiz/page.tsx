@@ -325,27 +325,38 @@ export default function QuizPage() {
       // If user exits fullscreen during active quiz
       if (!document.fullscreenElement && isFullscreen && startTime) {
         toggleFullscreen();
-        setShowExitWarning(true);
-        setIsAlertActive(true);
         
-        // Set 3-second timer for auto-fullscreen
-        alertTimerRef.current = setTimeout(async () => {
-          // Auto re-enter fullscreen after 3 seconds
-          try {
-            if (document.documentElement.requestFullscreen) {
-              await document.documentElement.requestFullscreen();
+        // Check if this is the first exit attempt
+        if (fullscreenExitAttempts === 0) {
+          // First attempt - show warning and start timer
+          setFullscreenExitAttempts(1);
+          setShowExitWarning(true);
+          setIsAlertActive(true);
+          
+          // Set 3-second timer for auto-fullscreen
+          alertTimerRef.current = setTimeout(async () => {
+            // Auto re-enter fullscreen after 3 seconds
+            try {
+              if (document.documentElement.requestFullscreen) {
+                await document.documentElement.requestFullscreen();
+                setShowExitWarning(false);
+                setIsAlertActive(false);
+                if (!isFullscreen) {
+                  toggleFullscreen();
+                }
+              }
+            } catch (err) {
+              console.warn('Could not auto re-enter fullscreen:', err);
               setShowExitWarning(false);
               setIsAlertActive(false);
-              if (!isFullscreen) {
-                toggleFullscreen();
-              }
             }
-          } catch (err) {
-            console.warn('Could not auto re-enter fullscreen:', err);
-            setShowExitWarning(false);
-            setIsAlertActive(false);
-          }
-        }, 3000);
+          }, 3000);
+        } else {
+          // Second or subsequent attempt - immediately end test
+          releaseWakeLock();
+          setQuizActive(false);
+          router.push('/results');
+        }
       } else if (document.fullscreenElement && !isFullscreen) {
         // Sync state when entering fullscreen
         toggleFullscreen();
@@ -360,7 +371,7 @@ export default function QuizPage() {
         clearTimeout(alertTimerRef.current);
       }
     };
-  }, [isFullscreen, startTime]);
+  }, [isFullscreen, startTime, fullscreenExitAttempts]);
 
   // Tab switch detection - immediately end test
   useEffect(() => {
