@@ -42,6 +42,8 @@ export default function QuizPage() {
   const [isAutoAdvancing, setIsAutoAdvancing] = useState(false);
   const [fullscreenExitAttempts, setFullscreenExitAttempts] = useState(0);
   const [showExitWarning, setShowExitWarning] = useState(false);
+  const [isAlertActive, setIsAlertActive] = useState(false);
+  const alertTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
   const [cheatingAttempts, setCheatingAttempts] = useState(0);
@@ -317,40 +319,33 @@ export default function QuizPage() {
     }, 500);
   };
 
-  // Fullscreen handling with exit prevention
+  // Fullscreen handling with exit prevention and alert system
   useEffect(() => {
     const handleFullscreenChange = () => {
-      // If user exits fullscreen
+      // If user exits fullscreen during active quiz
       if (!document.fullscreenElement && isFullscreen && startTime) {
         toggleFullscreen();
+        setShowExitWarning(true);
+        setIsAlertActive(true);
         
-        // First attempt - show warning and try to re-enter
-        if (fullscreenExitAttempts === 0) {
-          setFullscreenExitAttempts(1);
-          setShowExitWarning(true);
-          
-          // Try to re-enter fullscreen immediately
-          setTimeout(async () => {
-            try {
-              if (document.documentElement.requestFullscreen) {
-                await document.documentElement.requestFullscreen();
-                setShowExitWarning(false);
-                if (!isFullscreen) {
-                  toggleFullscreen();
-                }
-              }
-            } catch (err) {
-              console.warn('Could not auto re-enter fullscreen:', err);
+        // Set 3-second timer for auto-fullscreen
+        alertTimerRef.current = setTimeout(async () => {
+          // Auto re-enter fullscreen after 3 seconds
+          try {
+            if (document.documentElement.requestFullscreen) {
+              await document.documentElement.requestFullscreen();
               setShowExitWarning(false);
+              setIsAlertActive(false);
+              if (!isFullscreen) {
+                toggleFullscreen();
+              }
             }
-          }, 100);
-        } 
-        // Second attempt - auto-submit test
-        else {
-          releaseWakeLock();
-          setQuizActive(false);
-          router.push('/results');
-        }
+          } catch (err) {
+            console.warn('Could not auto re-enter fullscreen:', err);
+            setShowExitWarning(false);
+            setIsAlertActive(false);
+          }
+        }, 3000);
       } else if (document.fullscreenElement && !isFullscreen) {
         // Sync state when entering fullscreen
         toggleFullscreen();
@@ -361,8 +356,11 @@ export default function QuizPage() {
     
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      if (alertTimerRef.current) {
+        clearTimeout(alertTimerRef.current);
+      }
     };
-  }, [isFullscreen, fullscreenExitAttempts, startTime]);
+  }, [isFullscreen, startTime]);
 
   // Tab switch detection - immediately end test
   useEffect(() => {
@@ -461,9 +459,23 @@ export default function QuizPage() {
     };
   }, []);
 
-  // Keyboard shortcuts prevention
+  // Keyboard shortcuts prevention with alert detection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If alert is active and user presses any key, end the test
+      if (isAlertActive) {
+        e.preventDefault();
+        if (alertTimerRef.current) {
+          clearTimeout(alertTimerRef.current);
+        }
+        setIsAlertActive(false);
+        setShowExitWarning(false);
+        releaseWakeLock();
+        setQuizActive(false);
+        router.push('/results');
+        return;
+      }
+      
       // Prevent common shortcuts
       if (
         e.ctrlKey || 
@@ -490,7 +502,39 @@ export default function QuizPage() {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, isAlertActive]);
+
+  // Click detection during alert - end test if user clicks anywhere except the button
+  useEffect(() => {
+    if (!isAlertActive) return;
+
+    const handleClick = (e: MouseEvent) => {
+      // Check if click is on the "Enable Fullscreen" button
+      const target = e.target as HTMLElement;
+      if (target.closest('.fullscreen-enable-btn')) {
+        return; // Allow this click
+      }
+      
+      // Any other click ends the test
+      e.preventDefault();
+      e.stopPropagation();
+      if (alertTimerRef.current) {
+        clearTimeout(alertTimerRef.current);
+      }
+      setIsAlertActive(false);
+      setShowExitWarning(false);
+      releaseWakeLock();
+      setQuizActive(false);
+      router.push('/results');
+    };
+
+    // Use capture phase to catch clicks before they reach other handlers
+    document.addEventListener('click', handleClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleClick, true);
+    };
+  }, [isAlertActive]);
 
   // Cursor confinement - prevent cursor from leaving test area
   useEffect(() => {
@@ -571,6 +615,28 @@ export default function QuizPage() {
   const handleToggleFullscreen = async () => {
     // Prevent manual fullscreen toggle during quiz
     return;
+  };
+
+  // Handle Enable Fullscreen button click
+  const handleEnableFullscreen = async () => {
+    if (alertTimerRef.current) {
+      clearTimeout(alertTimerRef.current);
+    }
+    
+    setIsAlertActive(false);
+    
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+        setShowExitWarning(false);
+        if (!isFullscreen) {
+          toggleFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn('Could not re-enter fullscreen:', err);
+      setShowExitWarning(false);
+    }
   };
 
   const handleFinish = () => {
@@ -895,14 +961,14 @@ export default function QuizPage() {
 
         {/* Question Container */}
         <div className="flex-1 flex items-center justify-center relative overflow-hidden min-h-0">
-          {/* Fullscreen Exit Warning */}
+          {/* Fullscreen Exit Warning with Enable Button */}
           <AnimatePresence>
             {showExitWarning && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
               >
                 <motion.div
                   initial={{ y: 20 }}
@@ -912,17 +978,33 @@ export default function QuizPage() {
                   <div className="flex flex-col items-center text-center">
                     <motion.div
                       animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ duration: 0.5, repeat: 2 }}
+                      transition={{ duration: 0.5, repeat: Infinity }}
                       className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4"
                     >
                       <AlertCircle className="w-10 h-10 text-red-600" />
                     </motion.div>
-                    <h3 className="text-xl md:text-2xl font-bold text-gray-900 mb-3">Warning!</h3>
-                    <p className="text-gray-700 text-base md:text-lg mb-2 font-semibold">
-                      Exiting fullscreen will end your test!
+                    <h3 className="text-xl md:text-2xl font-bold text-red-600 mb-3">⚠️ ALERT!</h3>
+                    <p className="text-gray-900 text-base md:text-lg mb-2 font-bold">
+                      Fullscreen Exited!
                     </p>
-                    <p className="text-gray-600 text-sm md:text-base">
-                      Returning to fullscreen ...
+                    <p className="text-gray-700 text-sm md:text-base mb-4">
+                      Click the button below to continue the test.
+                    </p>
+                    <p className="text-red-600 text-xs md:text-sm font-semibold mb-6">
+                      ⚠️ Clicking anywhere else or pressing any key will END your test!
+                    </p>
+                    
+                    <motion.button
+                      onClick={handleEnableFullscreen}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="fullscreen-enable-btn px-8 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-bold text-base shadow-lg hover:shadow-xl transition-all duration-300"
+                    >
+                      Enable Fullscreen
+                    </motion.button>
+                    
+                    <p className="text-gray-500 text-xs mt-4">
+                      Click to Enable Fullscreen.
                     </p>
                   </div>
                 </motion.div>
